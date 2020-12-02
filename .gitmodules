@@ -1,0 +1,3 @@
+[submodule "libzstd-seek"]
+	path = libzstd-seek
+	url = https://github.com/martinellimarco/libzstd-seek
