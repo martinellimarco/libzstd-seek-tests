@@ -14,6 +14,7 @@
 #pragma ide diagnostic ignored "cert-msc50-cpp"
 #pragma ide diagnostic ignored "cert-err58-cpp"
 #include <cstdint>
+#include <fcntl.h>
 #include "../libzstd-seek/zstd-seek.h"
 #include "gtest/gtest.h"
 
@@ -22,19 +23,25 @@ TEST(ZSTDSeekInvalid, InvalidArguments) {
 
     ZSTDSeek_freeJumpTable(nullptr);
 
-    ZSTDSeek_addJumpTableRecord(nullptr, 0, 0, 0);
+    ZSTDSeek_addJumpTableRecord(nullptr, 0, 0);
 
-    ZSTDSeek_initializeJumpTable(nullptr, nullptr, 0);
+    ZSTDSeek_initializeJumpTable(nullptr);
+
+    ASSERT_EQ(ZSTDSeek_uncompressedFileSize(nullptr), 0);
 
     ASSERT_EQ(ZSTDSeek_createFromFile(""), nullptr);
 
     ASSERT_EQ(ZSTDSeek_createFromFile("/dev/null"), nullptr);
+
+    ASSERT_EQ(ZSTDSeek_createFromFileDescriptor(-1), nullptr);
 
     ASSERT_EQ(ZSTDSeek_read(nullptr, 0, nullptr), 0);
 
     ASSERT_EQ(ZSTDSeek_seek(nullptr, 0, 0), -1);
 
     ASSERT_EQ(ZSTDSeek_tell(nullptr), -1);
+
+    ASSERT_EQ(ZSTDSeek_compressedTell(nullptr), -1);
 
     ZSTDSeek_free(nullptr);
 }
@@ -49,7 +56,7 @@ TEST(ZSTDSeekInvalid, UncompressInvalidData) {
 }
 
 //try to load a truncated file
-TEST(ZSTDSeekInvalid, JumpTable) {
+TEST(ZSTDSeekInvalid, TruncatedFile) {
     ZSTDSeek_Context* sctx = ZSTDSeek_createFromFile("test_assets/truncated.zst");
     ASSERT_EQ (sctx, nullptr);
 }
@@ -74,27 +81,85 @@ TEST(ZSTDSeekInvalid, SeekInvalidOrigin) {
  * it's an easy test to make sure we are reading correctly even when we hit the boundary of a frame
  * */
 
-//test seek_end and tell, it should match the file size
-TEST(ZSTDSeekTestSimple, JumpTable) {
+TEST(ZSTDSeekTestSimple, OpenFileDescriptor) {
+    const char *file = "test_assets/seek_simple.zst";
+    int fd = open(file, O_RDONLY, 0);
+    ASSERT_GE(fd, 0);
+
+    ZSTDSeek_Context* sctx = ZSTDSeek_createFromFileDescriptor(fd);
+    ASSERT_NE (sctx, nullptr);
+
+    ZSTDSeek_JumpTable *jt = ZSTDSeek_getJumpTableOfContext(sctx);
+    ASSERT_NE (jt, nullptr);
+
+    ASSERT_EQ(jt->length, 5);
+
+    ASSERT_EQ(fd, ZSTDSeek_fileno(sctx));
+
+    ZSTDSeek_free(sctx);
+}
+
+//test if the jump table is automatically generated
+TEST(ZSTDSeekTestSimple, JumpTableAutomatic) {
     ZSTDSeek_Context* sctx = ZSTDSeek_createFromFile("test_assets/seek_simple.zst");
     ASSERT_NE (sctx, nullptr);
 
     ZSTDSeek_JumpTable *jt = ZSTDSeek_getJumpTableOfContext(sctx);
     ASSERT_NE (jt, nullptr);
 
-    ASSERT_EQ(jt->length, 4);
+    ASSERT_EQ(jt->length, 5);
 
-    size_t expectedCompressedPos[] = {0, 17, 32, 49};
-    size_t expectedUncompressedPos[] = {0, 4, 6, 10};
+    size_t expectedCompressedPos[] = {0, 17, 32, 49, 78};
+    size_t expectedUncompressedPos[] = {0, 4, 6, 10, 26};
 
     for(uint32_t i = 0; i < jt->length; i++){
         ZSTDSeek_JumpTableRecord r = jt->records[i];
-        ASSERT_EQ(r.frameIdx, i);
         ASSERT_EQ(r.compressedPos, expectedCompressedPos[i]);
         ASSERT_EQ(r.uncompressedPos, expectedUncompressedPos[i]);
     }
 
-    ASSERT_EQ(jt->uncompressedFileSize, 26);
+    ASSERT_EQ(ZSTDSeek_uncompressedFileSize(sctx), 26);
+
+    ZSTDSeek_free(sctx);
+}
+
+//test if the jump table can be set correctly
+TEST(ZSTDSeekTestSimple, JumpTableManual) {
+    ZSTDSeek_Context* sctx = ZSTDSeek_createFromFileWithoutJumpTable("test_assets/seek_simple.zst");
+    ASSERT_NE (sctx, nullptr);
+
+    ZSTDSeek_JumpTable *jt = ZSTDSeek_getJumpTableOfContext(sctx);
+    ASSERT_NE (jt, nullptr);
+
+    ASSERT_EQ(ZSTDSeek_uncompressedFileSize(sctx), 0);
+
+    ASSERT_EQ(jt->length, 0);
+
+    ZSTDSeek_addJumpTableRecord(jt, 0, 0);
+    ASSERT_EQ(jt->length, 1);
+
+    ZSTDSeek_addJumpTableRecord(jt, 17, 4);
+    ASSERT_EQ(jt->length, 2);
+
+    ZSTDSeek_addJumpTableRecord(jt, 32, 6);
+    ASSERT_EQ(jt->length, 3);
+
+    ZSTDSeek_addJumpTableRecord(jt, 49, 10);
+    ASSERT_EQ(jt->length, 4);
+
+    ZSTDSeek_addJumpTableRecord(jt, 78, 26);
+    ASSERT_EQ(jt->length, 5);
+
+    size_t expectedCompressedPos[] = {0, 17, 32, 49, 78};
+    size_t expectedUncompressedPos[] = {0, 4, 6, 10, 26};
+
+    for(uint32_t i = 0; i < jt->length; i++){
+        ZSTDSeek_JumpTableRecord r = jt->records[i];
+        ASSERT_EQ(r.compressedPos, expectedCompressedPos[i]);
+        ASSERT_EQ(r.uncompressedPos, expectedUncompressedPos[i]);
+    }
+
+    ASSERT_EQ(ZSTDSeek_uncompressedFileSize(sctx), 26);
 
     ZSTDSeek_free(sctx);
 }
@@ -110,6 +175,9 @@ TEST(ZSTDSeekTestSimple, ReadSeqAll) {
     pos = ZSTDSeek_tell(sctx);
     ASSERT_EQ(pos, 0);
 
+    pos = ZSTDSeek_compressedTell(sctx);
+    ASSERT_EQ(pos, 0);
+
     ret = ZSTDSeek_read(buff, 26, sctx);
     ASSERT_EQ(ret, 26);
     for(int i=0; i<26; i++){
@@ -118,6 +186,9 @@ TEST(ZSTDSeekTestSimple, ReadSeqAll) {
 
     pos = ZSTDSeek_tell(sctx);
     ASSERT_EQ(pos, 26);
+
+    pos = ZSTDSeek_compressedTell(sctx);
+    ASSERT_EQ(pos, 78);
 
     ZSTDSeek_free(sctx);
 }
@@ -206,6 +277,9 @@ TEST(ZSTDSeekTestSimple, ReadSeqSmallBlocks) {
 
     pos = ZSTDSeek_tell(sctx);
     ASSERT_EQ(pos, 26);
+
+    pos = ZSTDSeek_compressedTell(sctx);
+    ASSERT_EQ(pos, 78);
 
     ZSTDSeek_free(sctx);
 }
@@ -354,10 +428,12 @@ TEST(ZSTDSeekTestSimple, SeekEndTellFileSize) {
     pos = ZSTDSeek_tell(sctx);
     ASSERT_EQ(pos, 26);
 
+    ASSERT_EQ(ZSTDSeek_compressedTell(sctx), 78);
+
     ZSTDSeek_JumpTable *jt = ZSTDSeek_getJumpTableOfContext(sctx);
     ASSERT_NE (jt, nullptr);
 
-    ASSERT_EQ(pos, jt->uncompressedFileSize);
+    ASSERT_EQ(pos, ZSTDSeek_uncompressedFileSize(sctx));
 
     ZSTDSeek_free(sctx);
 }
@@ -526,9 +602,9 @@ TEST(ZSTDSeekTest100K, JumpTable) {
     ZSTDSeek_JumpTable *jt = ZSTDSeek_getJumpTableOfContext(sctx);
     ASSERT_NE (jt, nullptr);
 
-    ASSERT_EQ(jt->length, 100);
+    ASSERT_EQ(jt->length, 101);
 
-    ASSERT_EQ(jt->uncompressedFileSize, 100000);
+    ASSERT_EQ(ZSTDSeek_uncompressedFileSize(sctx), 100000);
 
     ZSTDSeek_free(sctx);
 }
@@ -553,7 +629,7 @@ TEST(ZSTDSeekTest100K, SeekEndTellFileSize) {
     ZSTDSeek_JumpTable *jt = ZSTDSeek_getJumpTableOfContext(sctx);
     ASSERT_NE (jt, nullptr);
 
-    ASSERT_EQ(pos, jt->uncompressedFileSize);
+    ASSERT_EQ(pos, ZSTDSeek_uncompressedFileSize(sctx));
 
     ZSTDSeek_free(sctx);
 }
