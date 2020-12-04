@@ -15,7 +15,7 @@
 #pragma ide diagnostic ignored "cert-err58-cpp"
 #include <cstdint>
 #include <fcntl.h>
-#include "../libzstd-seek/zstd-seek.h"
+#include "libzstd-seek/zstd-seek.h"
 #include "gtest/gtest.h"
 
 TEST(ZSTDSeekInvalid, InvalidArguments) {
@@ -98,6 +98,22 @@ TEST(ZSTDSeekTestSimple, OpenFileDescriptor) {
 
     ZSTDSeek_free(sctx);
 }
+//test seek before read
+TEST(ZSTDSeekTestSimple, SeekFirst) {
+    ZSTDSeek_Context* sctx = ZSTDSeek_createFromFile("test_assets/mimi.zst");
+    ASSERT_NE (sctx, nullptr);
+
+    char buff[100000];
+    int ret;
+
+    ret = ZSTDSeek_seek(sctx, 1, SEEK_SET);
+    ASSERT_EQ(ret, 0);
+
+    ret = ZSTDSeek_read(buff, 100000, sctx);
+    ASSERT_EQ(ret, 100000);
+
+    ZSTDSeek_free(sctx);
+}
 
 //test if the jump table is automatically generated
 TEST(ZSTDSeekTestSimple, JumpTableAutomatic) {
@@ -131,7 +147,7 @@ TEST(ZSTDSeekTestSimple, JumpTableManual) {
     ZSTDSeek_JumpTable *jt = ZSTDSeek_getJumpTableOfContext(sctx);
     ASSERT_NE (jt, nullptr);
 
-    ASSERT_EQ(ZSTDSeek_uncompressedFileSize(sctx), 0);
+    ASSERT_EQ(ZSTDSeek_lastKnownUncompressedFileSize(sctx), 0);
 
     ASSERT_EQ(jt->length, 0);
 
@@ -148,6 +164,91 @@ TEST(ZSTDSeekTestSimple, JumpTableManual) {
     ASSERT_EQ(jt->length, 4);
 
     ZSTDSeek_addJumpTableRecord(jt, 78, 26);
+    ASSERT_EQ(jt->length, 5);
+
+    size_t expectedCompressedPos[] = {0, 17, 32, 49, 78};
+    size_t expectedUncompressedPos[] = {0, 4, 6, 10, 26};
+
+    for(uint32_t i = 0; i < jt->length; i++){
+        ZSTDSeek_JumpTableRecord r = jt->records[i];
+        ASSERT_EQ(r.compressedPos, expectedCompressedPos[i]);
+        ASSERT_EQ(r.uncompressedPos, expectedUncompressedPos[i]);
+    }
+
+    ASSERT_EQ(ZSTDSeek_uncompressedFileSize(sctx), 26);
+
+    ZSTDSeek_free(sctx);
+}
+
+//test if the jump table is automatically generated while reading
+TEST(ZSTDSeekTestSimple, JumpTableAutomaticProgressive) {
+    ZSTDSeek_Context* sctx = ZSTDSeek_createFromFileWithoutJumpTable("test_assets/seek_simple.zst");
+    ASSERT_NE (sctx, nullptr);
+
+    char buff[100];
+    size_t pos;
+    int ret;
+
+    ZSTDSeek_JumpTable *jt = ZSTDSeek_getJumpTableOfContext(sctx);
+    ASSERT_NE (jt, nullptr);
+
+    ASSERT_EQ(ZSTDSeek_lastKnownUncompressedFileSize(sctx), 0);
+
+    ASSERT_EQ(jt->length, 0);
+
+    ret = ZSTDSeek_jumpTableIsInitialized(sctx);
+    ASSERT_EQ(ret, 0);
+
+    ret = ZSTDSeek_read(buff, 1, sctx);
+    ASSERT_EQ(ret, 1);
+    ASSERT_EQ(buff[0], 'A');
+
+    ASSERT_EQ(jt->length, 2);
+
+    ret = ZSTDSeek_jumpTableIsInitialized(sctx);
+    ASSERT_EQ(ret, 0);
+
+    ASSERT_EQ(ZSTDSeek_lastKnownUncompressedFileSize(sctx), 4);
+
+    pos = ZSTDSeek_tell(sctx);
+    ASSERT_EQ(pos, 1);
+
+    ret = ZSTDSeek_read(buff, 3, sctx);
+    ASSERT_EQ(ret, 3);
+    ASSERT_EQ(buff[0], 'B');
+    ASSERT_EQ(buff[1], 'C');
+    ASSERT_EQ(buff[2], 'D');
+
+    pos = ZSTDSeek_tell(sctx);
+    ASSERT_EQ(pos, 4);
+
+    ASSERT_EQ(jt->length, 2);
+
+    ret = ZSTDSeek_jumpTableIsInitialized(sctx);
+    ASSERT_EQ(ret, 0);
+
+    ASSERT_EQ(ZSTDSeek_lastKnownUncompressedFileSize(sctx), 4);
+
+    ret = ZSTDSeek_read(buff, 1, sctx);
+    ASSERT_EQ(ret, 1);
+    ASSERT_EQ(buff[0], 'E');
+
+    ASSERT_EQ(jt->length, 3);
+
+    ret = ZSTDSeek_jumpTableIsInitialized(sctx);
+    ASSERT_EQ(ret, 0);
+
+    ASSERT_EQ(ZSTDSeek_lastKnownUncompressedFileSize(sctx), 6);
+
+    ret = ZSTDSeek_seek(sctx, 0, SEEK_END);
+    ASSERT_EQ(ret, 0);
+    ASSERT_EQ(jt->length, 5);
+
+    ret = ZSTDSeek_jumpTableIsInitialized(sctx);
+    ASSERT_EQ(ret, 1);
+
+    ret = ZSTDSeek_seek(sctx, 0, SEEK_END);
+    ASSERT_EQ(ret, 0);
     ASSERT_EQ(jt->length, 5);
 
     size_t expectedCompressedPos[] = {0, 17, 32, 49, 78};
