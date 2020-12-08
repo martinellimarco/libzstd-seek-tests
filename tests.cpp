@@ -43,6 +43,10 @@ TEST(ZSTDSeekInvalid, InvalidArguments) {
 
     ASSERT_EQ(ZSTDSeek_compressedTell(nullptr), -1);
 
+    ASSERT_EQ(ZSTDSeek_isMultiframe(nullptr), 0);
+
+    ASSERT_EQ(ZSTDSeek_getNumberOfFrames(nullptr), 0);
+
     ZSTDSeek_free(nullptr);
 }
 
@@ -96,6 +100,10 @@ TEST(ZSTDSeekTestSimple, OpenFileDescriptor) {
 
     ASSERT_EQ(fd, ZSTDSeek_fileno(sctx));
 
+    ASSERT_EQ(ZSTDSeek_isMultiframe(sctx), 1);
+
+    ASSERT_EQ(ZSTDSeek_getNumberOfFrames(sctx), 4);
+
     ZSTDSeek_free(sctx);
 }
 //test seek before read
@@ -111,6 +119,10 @@ TEST(ZSTDSeekTestSimple, SeekFirst) {
 
     ret = ZSTDSeek_read(buff, 100000, sctx);
     ASSERT_EQ(ret, 100000);
+
+    ASSERT_EQ(ZSTDSeek_isMultiframe(sctx), 1);
+
+    ASSERT_EQ(ZSTDSeek_getNumberOfFrames(sctx), 16);
 
     ZSTDSeek_free(sctx);
 }
