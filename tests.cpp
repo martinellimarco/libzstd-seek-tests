@@ -75,6 +75,12 @@ TEST(ZSTDSeekInvalid, SeekInvalidOrigin) {
     ZSTDSeek_free(sctx);
 }
 
+//test with invalid file format
+TEST(ZSTDSeekInvalid, OpenInvalidFormatXZ) {
+    ZSTDSeek_Context* sctx = ZSTDSeek_createFromFileWithoutJumpTable("test_assets/invalid_format.xz");
+    ASSERT_EQ (sctx, nullptr);
+}
+
 /*
  * seek_simple.zst is composed of 4 frames, containing the following bytes:
  * Frame1: ABCD
