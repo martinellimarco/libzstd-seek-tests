@@ -81,6 +81,54 @@ TEST(ZSTDSeekInvalid, OpenInvalidFormatXZ) {
     ASSERT_EQ (sctx, nullptr);
 }
 
+//test with corrupted zstd
+TEST(ZSTDSeekInvalid, OpenInvalidCorruptedZstd) {
+    FILE* f = fopen("test_assets/seek_simple.zst", "rb");
+    ASSERT_NE(f, nullptr);
+
+    fseek(f, 0, SEEK_END);
+    size_t size = ftell(f);
+
+    auto* buff = (uint8_t*)malloc(size);
+    fseek(f, 0, SEEK_SET);
+    ASSERT_EQ(size, fread(buff, 1, size, f));
+    fclose(f);
+
+    buff[0] &= 0xF0; //corrupt the header
+
+    ZSTDSeek_Context* sctx = ZSTDSeek_createWithoutJumpTable(buff, size);
+    ASSERT_EQ (sctx, nullptr);
+
+    ZSTDSeek_free(sctx);
+    free(buff);
+}
+
+//test with corrupted zstd
+TEST(ZSTDSeekInvalid, OpenInvalidMixedFormat) {
+    FILE* f = fopen("test_assets/seek_simple.zst", "rb");
+    ASSERT_NE(f, nullptr);
+
+    fseek(f, 0, SEEK_END);
+    size_t size = ftell(f);
+
+    auto* buff = (uint8_t*)malloc(2*size);
+    fseek(f, 0, SEEK_SET);
+    ASSERT_EQ(size, fread(buff, 1, size, f));
+    fclose(f);
+
+    for(size_t i = size; i<2*size; i++){//fill the 2nd half of the buffer with garbage
+        buff[i] = i & 0xFF;
+    }
+
+    ZSTDSeek_Context* sctx = ZSTDSeek_createWithoutJumpTable(buff, size);
+    ASSERT_NE (sctx, nullptr);
+
+    ASSERT_EQ(ZSTDSeek_getNumberOfFrames(sctx), 4);
+
+    ZSTDSeek_free(sctx);
+    free(buff);
+}
+
 /*
  * seek_simple.zst is composed of 4 frames, containing the following bytes:
  * Frame1: ABCD
