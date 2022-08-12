@@ -6,13 +6,11 @@ This is a repository with tests for [libzstd-seek](https://github.com/martinelli
 
 The tests require [googletest](https://github.com/google/googletest).
 
-It was tested with version 1.10.0
+It was tested with version 1.21.1
 
 ## How to run the tests
 
 Clone this repository with `git clone --recursive` as it will also clone `libzstd-seek`.
-
-Download googletest and place the content of `googletest-release/googletest` in `googletest`.
 
 Compile with
 

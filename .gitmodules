@@ -1,3 +1,6 @@
 [submodule "libzstd-seek"]
 	path = libzstd-seek
 	url = https://github.com/martinellimarco/libzstd-seek
+[submodule "googletest"]
+	path = googletest
+	url = https://github.com/google/googletest
